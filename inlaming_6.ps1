@@ -10,15 +10,12 @@ $group_membership = './files/GroupMembership.csv';
 #groups 
 $groups = './files/Groups.csv'
 #path to UO
-$ou = './files/OU.csv';
+$ou = './files/OUs.csv';
 
 #SCRIPT CONFIGURATION
 
 #folder where the users map will be
 $folder_for_users = 'D:\Storage_inl6\Users';
-
-#groups for the users
-$users_groups = @('Ekonomi',"Salj","HR","Inkop");
 
 #sites for the users
 $user_sites = @('SiteA_users','SiteB_users','SiteC_users');
@@ -29,16 +26,15 @@ $user_sites = @('SiteA_users','SiteB_users','SiteC_users');
 import-module ActiveDirectory;
 
 #import OU and loop them, use UTF8 so ÅÄÖ works.
-$OU_list = Import-CSV -path $ou -Delimiter ";" -Encoding 'UTF8'
+$OU_list = Import-CSV -path $ou -Delimiter ";" -Encoding UTF8
 
-for($i = 0;$i -lt $OU_list; $i++){
+foreach($item in $OU_list){
     try{
         #variables for name and Förälder
-        $name = $OU_list[$i].OU
-        $path = $OU_list[$i].FörälderOU
-    
-        #show the users the name and the path that will be created
-        Write-Host  $name $path
+        $name = $item.OU
+        $path = $item.FörälderOU
+        write-host $item;
+        write-host $path;
     
         #create the OU with the provided information in $variables
         New-ADOrganizationalUnit -Name "$name" -Path "$path" -ErrorAction stop
@@ -53,11 +49,11 @@ for($i = 0;$i -lt $OU_list; $i++){
 }
 
 #create the groups
-$group_list = Import-CSV -path $groups -Delimiter ";" -Encoding 'UTF8'
+$group_list = Import-CSV -path $groups -Delimiter ";" -Encoding UTF8
 
-for($i = 0;$i -lt $group_list; $i++){
-    $group_name = $group_list[$i].Gruppnamn
-    $parent = $group[$i].FörälderOU
+foreach($item in $group_list){
+    $group_name = $item.Gruppnamn
+    $parent = $item.FörälderOU
     Try { 
         #see if the group already exists. If not, the group will be created
         Get-ADGroup $group_name -ErrorAction stop 
@@ -90,16 +86,16 @@ $rule_auth_users = New-Object System.Security.AccessControl.FileSystemAccessRule
 
 $parent_acl.AddAccessRule($rule_current_users)
 $parent_acl.AddAccessRule($rule_auth_users)
-Set-Acl $folder_for_users $parent_acl | Out-Null
+Set-Acl $folder_for_users $parent_acl | Out-Null 
 
 #CREATE SUB GROUPS FOR GROUPS
 
-$group_membership_file = Import-Csv $group_membership -Delimiter ";" -Encoding 'UTF8'
+$group_membership_file = Import-Csv $group_membership -Delimiter ";" -Encoding UTF8
 
-for($i = 0;$i -lt $group_membership_file;$i++){   
+foreach($item in $group_membership_file){
 
-    $parent_group = $group_membership_file[$i].Föräldergrupp;
-    $member_group = $group_membership_file[$i].Föräldergrupp
+    $parent_group = $item.Föräldergrupp;
+    $member_group = $item.Föräldergrupp
 
     try{
 
@@ -120,42 +116,43 @@ for($i = 0;$i -lt $group_membership_file;$i++){
 }
 
 #CREATE THE USERS
-$users_list = Import-Csv -Path $users -Delimiter ";" -Encoding 'UTF8'
-for($i = 0;$i -lt $users_list; $i++){ 
+$users_list = Import-Csv -Path $users -Delimiter ";" -Encoding UTF8
+foreach($item in $users_list){
 
-    $username = $users_list[$i].Användarnamn
-    $password = $users_list[$i].Lösenord
-    $firstname = $users_list[$i].Förnamn
-    $surname = $users_list[$i].Efternamn
-    $OU = $users_list[$i].OU
-    $groupMembership = $users_list[$i].Gruppmedlemskap
+    $username = $item.Användarnamn
+    $password = $item.Lösenord
+    $firstname = $item.Förnamn
+    $surname = $item.Efternamn
+    $OU = $item.OU
+    $group_member_ship = $item.Gruppmedlemskap
 
     #check if user already exists
-    if(Get-ADUser -f {SamAccountName -eq $username}){
+    if(Get-ADUser -filter {SamAccountName -eq $username}){
 
-        Write-Warning "$username already exists"
+        Write-host "$username already exists"
         Add-Content -Value "$username already exists" -Path $path_to_logg_file -Force
 
     }else{
 
-        New-ADUser -UserPrincipalName $username -SamAccountName $username -Name "$firstname $surname" -GivenName $firstname -Surname $surname -Enabled $True -DisplayName "$surname, $firstname" -Path $OU -AccountPassword (ConvertTo-SecureString $password -AsPlainText -Force)
 
-        write-host "$username ($firtname,$surname) have been created in the AD";
+        New-ADUser -UserPrincipalName $username -SamAccountName $username -Name "${$item.Förnamn} $surname" -GivenName $item.Förnamn -Surname $surname -Enabled $True -DisplayName "$surname, $firstname" -Path $OU -AccountPassword (ConvertTo-SecureString $password -AsPlainText  -Force)
 
-        for($i = 0;$i -lt $groupMembership; $i++){ 
+        write-host "$username (${$item.Förnamn},$surname) have been created in the AD";
+
+        foreach($sub_item in $group_member_ship){
             #ad user to the right group
-            Add-ADGroupMember -Identity $groupMembership[$i] -Members $username -ErrorAction stop 
+            Add-ADGroupMember -Identity $sub_item -Members $username -ErrorAction stop 
         }
 
         try{
             #ad the homedirectory for the user, add H: as drive letter
-            Set-aduser $Username -HomeDirectory "\\DC01.grupp06.lab\Shares\$($username)" -homedrive "H:"
+            Set-aduser $Username -HomeDirectory "\\DC02.grupp06.lab\Shares\$($username)" -homedrive "H:"
 
         }
 
         catch{
             #if path already exists, tell the runner of the script and ad to the logg
-            Write-Warning "$username folder already exists."
+            Write-host "$username folder already exists."
             Add-Content -Value "$Username folder already exists" -Path $path_to_logg_file -Force
 
         }
@@ -164,9 +161,9 @@ for($i = 0;$i -lt $users_list; $i++){
 }
 
 #set permissions for groups parent folder
-for($i = 0;$i -lt $users_list; $i++){ 
+foreach($item in $users_list){
 
-    $username = $users_list[$i].Användarnamn
+    $username = $item.Användarnamn
     $users_folder = "D:\Storage_Inl6\Users\$Username"
     #create an folder fo the user
     New-Item -ItemType Directory -Force -Path $users_folder
@@ -182,7 +179,7 @@ for($i = 0;$i -lt $users_list; $i++){
 
     $user.AddAccessRule($rule)
     $user.AddAccessRule($domain_admin_rule)
-    Set-Acl $users_folder $user | Out-Null
+    Set-Acl $users_folder $user.SetAccessRule() | Out-Null
 
 }
 
@@ -212,9 +209,8 @@ Set-Acl $folder_groups $parent_group_acl | Out-Null
 # END ADD PERMISSIONS TO PARENT FOLDER
 # CREATE GROUP FOLDER
 
-for($i = 0;$i -lt $users_list; $i++){ 
-
-    $folder = $users_list[$i]
+foreach($item in $users_list){
+    $folder = $item
 
     try{
 
@@ -228,9 +224,9 @@ for($i = 0;$i -lt $users_list; $i++){
 
     }
 
-    for($i = 0;$i -lt $user_sites; $i++){ 
+    foreach($item in $user_sites){
 
-        foreach ($site in $user_sites[$i]){
+        foreach ($site in $item){
 
             try{
 
@@ -266,9 +262,9 @@ for($i = 0;$i -lt $users_list; $i++){
 }
 
 #set permissions 
-for($i = 0;$i -lt $user_site; $i++){ 
+foreach($item in $user_site){
 
-    $site = $user_site[$i]
+    $site = $item
     $folders = "D:\Storage_Inl6\Groups\$site"
 
     $acl = Get-Acl $folders
@@ -288,3 +284,6 @@ for($i = 0;$i -lt $user_site; $i++){
     Set-Acl $folders $acl | Out-Null
 
 }
+
+#END OF SCRIPT
+write-host 'end of script'
